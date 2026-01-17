@@ -1,5 +1,6 @@
 /**
  *
+ * about:debugging#/runtime/this-firefox
  * https://addons.mozilla.org/en-US/developers/addon/tabgroup-sync/edit
  *
  * @see https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabGroups
