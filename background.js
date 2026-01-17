@@ -62,8 +62,7 @@ const TAB_GROUP_TITLE_DEFAULT = "";
  */
 async function loadTabGroupsFromStorage()
 {
-	const storage = _getBrowserStorage();
-	const data = await storage.sync.get("tabGroups");
+	const data = await _getBrowserChrome().storage.sync.get("tabGroups");
 	const groups = data?.tabGroups;
 
 	if (!isAllowedSettingObject(groups))
@@ -83,8 +82,7 @@ async function loadTabGroupsFromStorage()
  */
 async function loadGroupIdMapping()
 {
-	const storage = _getBrowserStorage();
-	const data = await storage.local.get("groupIdMapping");
+	const data = await _getBrowserChrome().storage.local.get("groupIdMapping");
 	const mapping = data?.groupIdMapping || {};
 
 	const result = new Map();
@@ -104,7 +102,6 @@ async function loadGroupIdMapping()
  */
 async function saveGroupIdMapping(mapping)
 {
-	const storage = _getBrowserStorage();
 	const mappingObj = {};
 
 	for (const [remoteId, localId] of mapping.entries())
@@ -112,7 +109,7 @@ async function saveGroupIdMapping(mapping)
 		mappingObj[remoteId] = localId;
 	}
 
-	await storage.local.set({ groupIdMapping: mappingObj });
+	await _getBrowserChrome().storage.local.set({ groupIdMapping: mappingObj });
 	console.log("GroupIdMapping 已保存", mappingObj);
 }
 
@@ -141,14 +138,13 @@ async function getBrowserTabContext()
  */
 async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步到 storage.sync")
 {
-	const storage = _getBrowserStorage();
-
-	await storage.sync.set({ tabGroups: groups });
-	await storage.local.set({ tabGroups: groups });
+	const browserChrome = _getBrowserChrome();
+	await browserChrome.storage.sync.set({ tabGroups: groups });
+	await browserChrome.storage.local.set({ tabGroups: groups });
 	console.log(logMessage, groups);
 
-	console.log("storage.sync.getKeys", await storage.sync.getKeys());
-	console.log("storage.local.getKeys", await storage.local.getKeys());
+	console.log("storage.sync.getKeys", await browserChrome.storage.sync.getKeys());
+	console.log("storage.local.getKeys", await browserChrome.storage.local.getKeys());
 }
 
 /**
@@ -578,8 +574,7 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
  */
 async function getGroupsForExport()
 {
-	const storage = _getBrowserStorage();
-	const data = await storage.sync.get("tabGroups");
+	const data = await _getBrowserChrome().storage.sync.get("tabGroups");
 	const groups = data?.tabGroups;
 
 	if (!isAllowedSettingObject(groups))
@@ -629,8 +624,7 @@ async function importJsonData(importData)
 
 	try
 	{
-		const storage = _getBrowserStorage();
-		const data = await storage.sync.get("tabGroups");
+		const data = await _getBrowserChrome().storage.sync.get("tabGroups");
 		const existingGroups = data?.tabGroups || {};
 
 		// 合併現有資料與匯入資料
@@ -875,14 +869,9 @@ async function queryTabGroup(queryInfo)
 	return browser.tabGroups.query(queryInfo)
 }
 
-function _getBrowserStorage()
+function _getBrowserChrome()
 {
-	return browser.storage || chrome.storage;
-}
-
-function _getBrowserTabs()
-{
-	return browser.tabs || chrome.tabs;
+	return browser || chrome;
 }
 
 /**
@@ -898,7 +887,7 @@ async function queryBrowserTabs(queryInfo, fn)
 	queryInfo ??= {};
 	queryInfo.pinned ??= false;
 
-	const tabs = await _getBrowserTabs().query(queryInfo);
+	const tabs = await _getBrowserChrome().tabs.query(queryInfo);
 	
 	if (typeof fn !== "undefined")
 	{
