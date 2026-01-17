@@ -669,11 +669,8 @@ function _getBrowserTabs()
 }
 
 /**
- * 
- * @returns {Promise<ISyncTab[]>}
- */
-/**
  * 查询浏览器标签页并可选地对结果进行处理
+ * 
  * @param {object} [queryInfo] - 查询参数对象，默认为空对象
  * @param {boolean} [queryInfo.pinned=false] - 是否查询固定标签页
  * @param {function} [fn] - 可选的处理函数，接收查询结果作为参数
