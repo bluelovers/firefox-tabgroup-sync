@@ -25,12 +25,47 @@ Firefox 擴充元件，跨裝置同步 TabGroup，用於同步瀏覽器的標籤
 4. **Merge TabGroup**: 合併遠端與本地標籤頁組
 5. **Options**: 進入設定頁面進行匯出/匯入操作
 
-### 為何使用 Options 頁面處理匯入/匯出？
+### 為何使用 Options 頁面處理匯出/匯入？
 
 在 Firefox/Chrome 的 WebExtensions 中，popup 頁面天生會在失去焦點時自動關閉，這是瀏覽器的設計，無法透過權限或設定直接阻止。
 
 - **Popup 自動關閉問題**: 當用戶點擊檔案選擇器時，popup 會失去焦點並自動關閉，導致事件流程中斷。
-- **解決方案**: 使用 Options 頁面來處理需要檔案選擇的操作（如匯入/匯出），確保操作流程不會被中斷。
+- **解決方案**: 使用 Options 頁面來處理需要檔案選擇的操作（如匯出/匯入），確保操作流程不會被中斷。
+
+### 為何使用 browser API 而非 chrome API？
+
+雖然 Firefox 和 Chrome 的 WebExtensions API 語法相似，但某些 API 行為在兩者之間存在差異。特別是在涉及標籤頁組（tabGroups）、標籤頁操作等功能時，使用 `chrome` API 可能會因權限問題導致無法符合期待。
+
+#### API 相容性分析
+
+**可使用 `chrome` API 正常執行的功能：**
+
+- `chrome.runtime.sendMessage()` - 訊息傳遞（僅用於發送訊息，不等待回傳值）
+- `chrome.runtime.openOptionsPage()` - 開啟選項頁面（有相容檢查）
+- `chrome.runtime.getURL()` - 取得擴充元件內部 URL
+
+**必須使用 `browser` API 的功能：**
+
+- `browser.runtime.sendMessage()` - 訊息傳遞（需要等待回傳值時必須使用）
+- `browser.storage` - 儲存 API（sync、local、getKeys 等）
+- `browser.tabs` - 標籤頁 API（create、query、group 等）
+- `browser.tabGroups` - 標籤頁組 API（get、query、update 等）
+- `browser.runtime.onMessage` - 監聽訊息
+
+> **注意**: `chrome.runtime.sendMessage()` 和 `browser.runtime.sendMessage()` 在回傳值處理上存在差異。當需要使用 `await` 等待並取得 `sendResponse` 的回傳值時，必須使用 `browser.runtime.sendMessage()`。
+
+**使用場景說明：**
+
+| API | 使用場景 | 位置 |
+|-----|----------|------|
+| `chrome.runtime.sendMessage()` | 僅發送指令，不等待回應 | popup.js |
+| `browser.runtime.sendMessage()` + `await` | 發送指令並等待回傳結果 | options.js |
+| `browser.runtime.onMessage.addListener()` | 接收並處理訊息，回傳資料給發送者 | background.js |
+
+#### 權限問題與解決方案
+
+- **權限問題**: 使用 `chrome` API 操作 tabGroups、storage 時，可能會因權限問題導致無法符合期待。
+- **解決方案**: 專案中使用包裝函數作為 API 存取層，該函數返回 `browser || chrome`，確保在 Firefox 環境中優先使用 `browser` API，在 Chrome 環境中回退到 `chrome` API。
 
 ## 開發
 

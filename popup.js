@@ -18,13 +18,13 @@ document.getElementById("merge").addEventListener("click", () =>
 document.getElementById("open-options").addEventListener("click", (e) =>
 {
 	e.preventDefault();
-	if (browser.runtime.openOptionsPage)
+	if (chrome.runtime.openOptionsPage)
 	{
-		browser.runtime.openOptionsPage();
+		chrome.runtime.openOptionsPage();
 	}
 	else
 	{
-		window.open(browser.runtime.getURL("options.html"));
+		window.open(chrome.runtime.getURL("options.html"));
 	}
 });
 
