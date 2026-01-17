@@ -229,6 +229,167 @@ async function pullTabGroupsStorage()
 	console.log("TabGroups 已從 storage.sync 載入", data);
 }
 
+/**
+ * 合併遠端與本地的標籤頁組數據
+ *
+ * @async
+ * @returns {Promise<void>}
+ * @throws {Error}當存儲數據格式錯誤或同步操作失敗時拋出
+ * @description
+ * 1. 從瀏覽器存儲中獲取保存的標籤頁組數據（遠端）
+ * 2. 查詢當前瀏覽器中已存在的標籤頁和標籤頁組（本地）
+ * 3. 構建本地的數據結構
+ * 4. 合併遠端與本地數據:
+ *    - 對於每個遠端群組:
+ *      - 檢測本地是否已存在相同群組
+ *      - 對於群組中的每個標籤頁:
+ *        - 如果本地存在且未分組，則加入當前組
+ *        - 如果本地不存在，則新建標籤頁並加入組
+ * 5. 保存合併後的數據到存儲
+ */
+async function mergeTabGroupsStorage()
+{
+	const storage = _getBrowserStorage();
+
+	// 獲取遠端數據
+	const remoteData = await storage.sync.get("tabGroups");
+	/**
+	 * 存儲遠端標籤頁組數據的對象
+	 * @type {ISyncTabGroupsStorage}
+	 */
+	const remoteGroups = remoteData?.tabGroups;
+
+	if (!isAllowedSettingObject(remoteGroups))
+	{
+		console.warn("遠端 TabGroups 資料格式錯誤或不存在", remoteGroups)
+		return
+	}
+
+	// 查詢本地數據
+	const localTabs = await queryBrowserTabs({});
+	const localTabMap = new Map(localTabs.map(tab => [tab.url, tab]));
+	const localTabsByGroupId = groupTabsByGroupId(localTabs);
+	const localGroups = await queryTabGroup({});
+
+	// 構建本地數據結構（用於保存合併結果）
+	/**
+	 * 合併後的數據結構
+	 * @type {ISyncTabGroupsStorage}
+	 */
+	const mergedGroups = {};
+	const addedTabUrls = new Set();
+
+	// 1. 先將所有本地群組加入合併結果
+	for (const localGroup of localGroups)
+	{
+		if (validTabGroupId(localGroup.id))
+		{
+			const groupTabs = localTabsByGroupId.get(localGroup.id) || [];
+			mergedGroups[localGroup.id] = {
+				id: localGroup.id,
+				title: localGroup.title,
+				color: localGroup.color,
+				collapsed: localGroup.collapsed,
+				tabs: groupTabs.map(tab => ({
+					url: tab.url,
+					title: tab.title
+				}))
+			};
+
+			// 記錄已處理的標籤頁 URL
+			for (const tab of mergedGroups[localGroup.id].tabs)
+			{
+				addedTabUrls.add(tab.url);
+			}
+		}
+	}
+
+	// 2. 合併遠端數據
+	for (const remoteGroupId in remoteGroups)
+	{
+		const remoteGroup = remoteGroups[remoteGroupId];
+		const tabsToAdd = [];
+		let targetGroupId = null;
+
+		// 檢測 group 是否已存在
+		const existingGroupId = findExistingGroupId(remoteGroup, localGroups, localTabsByGroupId);
+
+		// 如果存在相同群組，合併標籤頁
+		if (existingGroupId !== null)
+		{
+			targetGroupId = existingGroupId;
+			console.log("合併到現有群組", existingGroupId, remoteGroup);
+		}
+		// 否則創建新群組（使用遠端 ID）
+		else
+		{
+			targetGroupId = parseInt(remoteGroupId);
+			mergedGroups[targetGroupId] = {
+				id: targetGroupId,
+				title: remoteGroup.title,
+				color: remoteGroup.color,
+				collapsed: remoteGroup.collapsed,
+				tabs: []
+			};
+			console.log("創建新群組", targetGroupId, remoteGroup);
+		}
+
+		// 處理標籤頁
+		for (const remoteTab of remoteGroup.tabs)
+		{
+			// 檢查標籤頁是否已被處理過（避免重複）
+			if (!addedTabUrls.has(remoteTab.url))
+			{
+				const localTab = localTabMap.get(remoteTab.url);
+
+				if (localTab)
+				{
+					// 本地存在但未分組，加入當前組
+					if (!validTabGroupId(localTab.groupId))
+					{
+						mergedGroups[targetGroupId].tabs.push({
+							url: remoteTab.url,
+							title: remoteTab.title || localTab.title
+						});
+						addedTabUrls.add(remoteTab.url);
+						console.log("加入本地未分組標籤頁", remoteTab.url);
+					}
+					// 本地已分組，跳過（避免恢復已被刪除的關係）
+					else
+					{
+						console.log("跳過已分組的本地標籤頁", remoteTab.url, localTab.groupId);
+					}
+				}
+				else
+				{
+					// 本地不存在，創建新標籤頁
+					mergedGroups[targetGroupId].tabs.push({
+						url: remoteTab.url,
+						title: remoteTab.title
+					});
+					addedTabUrls.add(remoteTab.url);
+					console.log("創建新標籤頁", remoteTab.url);
+				}
+			}
+		}
+
+		// 如果標籤頁為空，移除群組
+		if (mergedGroups[targetGroupId].tabs.length === 0)
+		{
+			delete mergedGroups[targetGroupId];
+			console.log("移除空群組", targetGroupId);
+		}
+	}
+
+	// 保存合併結果
+	await storage.sync.set({ tabGroups: mergedGroups });
+	await storage.local.set({ tabGroups: mergedGroups });
+	console.log("TabGroups 合併完成", mergedGroups);
+
+	console.log("storage.sync.getKeys", await storage.sync.getKeys())
+	console.log("storage.local.getKeys", await storage.local.getKeys())
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) =>
 {
 	if (msg.action === "push")
@@ -238,6 +399,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) =>
 	else if (msg.action === "pull")
 	{
 		pullTabGroupsStorage();
+	}
+	else if (msg.action === "merge")
+	{
+		mergeTabGroupsStorage();
 	}
 });
 
