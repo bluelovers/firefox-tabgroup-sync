@@ -158,6 +158,19 @@ async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步�
 }
 
 /**
+ * 将标签组数据保存到浏览器存储中
+ * 
+ * @param {ISyncTabGroupsStorage} tabGroups - 需要保存的标签组数组
+ * @param {string} [target="sync"] - 存储目标，可选值为"sync"或"local"
+ * @returns {Promise} 返回浏览器storage.set操作的Promise对象
+ */
+async function _saveTabGroupsToStorageCore(tabGroups, target = "sync")
+{
+	target = (target === "sync" || target !== "local") ? "sync" : target;
+	return _getBrowserChrome().storage[target].set({ tabGroups });
+}
+
+/**
  * 從 TabGroup 對象構建 ISyncTabGroup 對象
  *
  * @param {TabGroup} group - 瀏覽器 API 返回的 group 對象
@@ -219,21 +232,20 @@ function _findMapKeyByValue(map, value)
 }
 
 /**
- * 将当前浏览器窗口中的标签页组数据推送到浏览器存储中
+ * 核心：從瀏覽器當前窗口構建標籤頁組數據
  *
  * @async
- * @returns {Promise<{success: boolean, error?: string}>} 返回操作結果
- * @throws {Error} 当存储操作失败时抛出
+ * @param {ISyncTabGroupsStorage} [existingGroups={}] - 現有的群組數據（可選，用於保留時間戳和判斷操作類型）
+ * @returns {Promise<ISyncTabGroupsStorage>} 返回構建好的群組數據
  * @description
  * 1. 查询当前浏览器中所有标签页
  * 2. 遍历标签页，收集属于标签页组的标签页
  * 3. 对于每个标签页组:
  *    - 获取组信息
- *    - 收组内的所有标签页信息
+ *    - 收集组内的所有标签页信息
  * 4. 根據對應表將本地 ID 轉換為遠端 ID
- * 5. 将数据保存到 storage.sync 和 storage.local
  */
-async function pushTabGroupsStorage()
+async function _pushTabGroupsStorageCore(existingGroups = {})
 {
 	/**
 	 * 存储标签页组数据的对象
@@ -241,10 +253,6 @@ async function pushTabGroupsStorage()
 	 */
 	const groups = {};
 	const idMapping = await loadGroupIdMapping();
-
-	// 載入現有的群組數據以保留時間戳
-	const existingData = await _getBrowserChrome().storage.sync.get("tabGroups");
-	const existingGroups = existingData?.tabGroups || {};
 
 	// 統一使用同一個時間戳
 	const now = Date.now();
@@ -293,6 +301,31 @@ async function pushTabGroupsStorage()
 		}
 	});
 
+	return groups;
+}
+
+/**
+ * 将当前浏览器窗口中的标签页组数据推送到浏览器存储中
+ *
+ * @async
+ * @returns {Promise<{success: boolean, error?: string}>} 返回操作結果
+ * @throws {Error} 当存储操作失败时抛出
+ * @description
+ * 1. 查询当前浏览器中所有标签页
+ * 2. 遍历标签页，收集属于标签页组的标签页
+ * 3. 对于每个标签页组:
+ *    - 获取组信息
+ *    - 收组内的所有标签页信息
+ * 4. 根據對應表將本地 ID 轉換為遠端 ID
+ * 5. 将数据保存到 storage.sync 和 storage.local
+ */
+async function pushTabGroupsStorage()
+{
+	// 載入現有的群組數據以保留時間戳
+	const existingData = await _getBrowserChrome().storage.sync.get("tabGroups");
+	const existingGroups = existingData?.tabGroups || {};
+
+	const groups = await _pushTabGroupsStorageCore(existingGroups);
 	await saveTabGroupsToStorage(groups, "TabGroups 已同步到 storage.sync");
 	return { success: true };
 }
@@ -588,12 +621,27 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
 	}
 	else if (msg.action === "getGroupsForExport")
 	{
-		getGroupsForExport().then(groups => sendResponse({ groups }))
+		const source = isGroupsExportForLocal(msg.source);
+
+		getGroupsForExport(source).then(async (groups) => {
+			if (isGroupsExportForLocal(source) && groups.length > 0)
+			{
+				// 當 source 為 local 時，將結果保存到 storage.local
+				const groupsObject = {};
+				for (const group of groups)
+				{
+					groupsObject[group.id] = group;
+				}
+				await _getBrowserChrome().storage.local.set({ tabGroups: groupsObject });
+			}
+			return sendResponse({ groups })
+		})
 		return true
 	}
 	else if (msg.action === "exportJson")
 	{
-		exportSelectedGroups(msg.selectedIds).then(data => sendResponse({ data }));
+		const source = isGroupsExportForLocal(msg.source);
+		exportSelectedGroups(msg.selectedIds, source).then(data => sendResponse({ data }));
 		return true;
 	}
 	else if (msg.action === "importJson")
@@ -606,22 +654,52 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
 });
 
 /**
+ * 确定导出数据源是本地还是远程
+ * 
+ * @param {string} [source="local"] - 数据源类型，可选值为"local"或"remote"
+ * @returns {"local"|"remote"} 返回确定的数据源类型，默认为"local"
+ */
+function isGroupsExportForLocal(source = "local")
+{
+	return (source === "local" || source !== "remote") ? "local" : "remote";
+}
+
+/**
  * 獲取可匯出的群組列表
  *
  * @async
+ * @param {string} [source="local"] - 資料來源："local" 本地資料, "remote" 雲端資料
  * @returns {Promise<ISyncTabGroup[]>} 返回群組陣列
  */
-async function getGroupsForExport()
+async function getGroupsForExport(source = "local")
 {
-	const data = await _getBrowserChrome().storage.sync.get("tabGroups");
-	const groups = data?.tabGroups;
-
-	if (!isAllowedSettingObject(groups))
+	if (isGroupsExportForLocal(source))
 	{
+		// 載入現有的群組數據以保留時間戳
+		const existingData = await _getBrowserChrome().storage.sync.get("tabGroups");
+		const existingGroups = existingData?.tabGroups || {};
+
+		// 使用本地現有資料
+		const localGroups = await _pushTabGroupsStorageCore(existingGroups);
+		if (isAllowedSettingObject(localGroups) && Object.keys(localGroups).length > 0)
+		{
+			return Object.values(localGroups);
+		}
 		return [];
 	}
+	else
+	{
+		// 從 storage.sync 讀取雲端資料
+		const data = await _getBrowserChrome().storage.sync.get("tabGroups");
+		const groups = data?.tabGroups;
 
-	return Object.values(groups);
+		if (!isAllowedSettingObject(groups))
+		{
+			return [];
+		}
+
+		return Object.values(groups);
+	}
 }
 
 /**
@@ -629,11 +707,12 @@ async function getGroupsForExport()
  *
  * @async
  * @param {number[]} selectedIds - 要匯出的群組 ID 陣列
+ * @param {string} [source="local"] - 資料來源："local" 本地資料, "remote" 雲端資料
  * @returns {Promise<ISyncTabGroupsStorage>} 返回匯出的群組數據
  */
-async function exportSelectedGroups(selectedIds)
+async function exportSelectedGroups(selectedIds, source = "local")
 {
-	const groupsArray = await getGroupsForExport();
+	const groupsArray = await getGroupsForExport(source);
 
 	// 將陣列轉換為以 ID 為 key 的物件
 	const groups = {};

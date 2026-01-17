@@ -81,6 +81,16 @@
 			background-color: #ffe6e6;
 			color: #c00;
 		}
+		.export-source {
+			margin-bottom: 10px;
+		}
+		.export-source label {
+			margin-right: 15px;
+			cursor: pointer;
+		}
+		.export-source input {
+			margin-right: 5px;
+		}
 	</style>
 </head>
 
@@ -89,6 +99,16 @@
 
 	<div class="section">
 		<div class="section-title">匯出</div>
+		<div class="export-source">
+			<label>
+				<input type="radio" name="export-source" value="local" checked>
+				本地資料（目前瀏覽器視窗）
+			</label>
+			<label>
+				<input type="radio" name="export-source" value="remote">
+				雲端資料（已同步）
+			</label>
+		</div>
 		<div class="select-all">
 			<input type="checkbox" id="select-all-groups">
 			<label for="select-all-groups">全選/取消全選</label>

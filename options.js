@@ -1,13 +1,14 @@
 
 /**
  * 加载可供导出的标签群组列表并渲染到页面
- * 
+ *
  * @async
  * @returns {Promise<void>} 无返回值，但会更新页面中的导出群组列表
  */
 async function loadGroupsForExport()
 {
-	const response = await browser.runtime.sendMessage({ action: "getGroupsForExport" });
+	const exportSource = document.querySelector("input[name='export-source']:checked").value;
+	const response = await browser.runtime.sendMessage({ action: "getGroupsForExport", source: exportSource });
 	const groups = response?.groups || [];
 
 	const exportList = document.getElementById("export-group-list");
@@ -45,6 +46,15 @@ document.getElementById("select-all-groups").addEventListener("change", (e) =>
 	checkboxes.forEach(cb => cb.checked = e.target.checked);
 });
 
+// 匯出來源切換時重新載入群組列表
+document.querySelectorAll("input[name='export-source']").forEach(radio =>
+{
+	radio.addEventListener("change", () =>
+	{
+		loadGroupsForExport();
+	});
+});
+
 /**
  * 显示导入操作的状态信息
  * 
@@ -77,7 +87,8 @@ document.getElementById("export-json").addEventListener("click", async () =>
 		return;
 	}
 
-	const response = await browser.runtime.sendMessage({ action: "exportJson", selectedIds });
+	const exportSource = document.querySelector("input[name='export-source']:checked").value;
+	const response = await browser.runtime.sendMessage({ action: "exportJson", selectedIds, source: exportSource });
 	const exportData = response?.data;
 
 	if (!exportData)
