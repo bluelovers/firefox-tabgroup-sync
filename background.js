@@ -46,7 +46,20 @@
 
 const TAB_GROUP_TITLE_DEFAULT = "";
 
-// 儲存 TabGroup 狀態到 storage.sync
+/**
+ * 将当前浏览器窗口中的标签页组数据推送到浏览器存储中
+ *
+ * @async
+ * @returns {Promise<void>}
+ * @throws {Error} 当存储操作失败时抛出
+ * @description
+ * 1. 查询当前浏览器中所有标签页
+ * 2. 遍历标签页，收集属于标签页组的标签页
+ * 3. 对于每个标签页组:
+ *    - 获取组信息
+ *    - 收组内的所有标签页信息
+ * 4. 将数据保存到 storage.sync 和 storage.local
+ */
 async function pushTabGroupsStorage()
 {
 	/**
