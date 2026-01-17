@@ -51,7 +51,8 @@ document.querySelectorAll("input[name='export-source']").forEach(radio =>
 {
 	radio.addEventListener("change", () =>
 	{
-		loadGroupsForExport();
+		showStatus("正在切換資料來源...");
+		loadGroupsForExport().then(() => showStatus("已切換資料來源"));
 	});
 });
 
@@ -97,11 +98,21 @@ document.getElementById("export-json").addEventListener("click", async () =>
 		return;
 	}
 
+	// 生成 24 小時制的時間戳格式：YYYY-MM-DD-HHmmss
+	const now = new Date();
+	const year = now.getFullYear();
+	const month = String(now.getMonth() + 1).padStart(2, "0");
+	const day = String(now.getDate()).padStart(2, "0");
+	const hours = String(now.getHours()).padStart(2, "0");
+	const minutes = String(now.getMinutes()).padStart(2, "0");
+	const seconds = String(now.getSeconds()).padStart(2, "0");
+	const timestamp = `${year}-${month}-${day}-${hours}${minutes}${seconds}`;
+
 	const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement("a");
 	a.href = url;
-	a.download = `tabgroups-${new Date().toISOString().slice(0, 10)}.json`;
+	a.download = `tabgroups-${timestamp}.json`;
 	document.body.appendChild(a);
 	a.click();
 	document.body.removeChild(a);
