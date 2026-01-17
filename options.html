@@ -1,0 +1,114 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+	<title>TabGroup Sync - 選項</title>
+	<style>
+		body {
+			width: 400px;
+			padding: 20px;
+			font-family: sans-serif;
+		}
+		.section {
+			border: 1px solid #ddd;
+			border-radius: 5px;
+			padding: 15px;
+			margin-bottom: 20px;
+		}
+		.section-title {
+			font-weight: bold;
+			font-size: 18px;
+			margin-bottom: 15px;
+		}
+		.button-row {
+			display: flex;
+			gap: 10px;
+			margin-top: 10px;
+		}
+		button {
+			flex: 1;
+			padding: 10px;
+			cursor: pointer;
+			border: none;
+			border-radius: 3px;
+			background-color: #0060df;
+			color: white;
+			font-size: 14px;
+		}
+		button:hover {
+			background-color: #003eaa;
+		}
+		#export-group-list {
+			max-height: 200px;
+			overflow-y: auto;
+			border: 1px solid #ddd;
+			padding: 10px;
+			margin-bottom: 10px;
+		}
+		.group-item {
+			display: flex;
+			align-items: center;
+			padding: 5px 0;
+		}
+		.group-item input {
+			margin-right: 10px;
+		}
+		.group-item label {
+			flex: 1;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		.select-all {
+			margin-bottom: 10px;
+		}
+		.no-data {
+			color: #666;
+			padding: 10px;
+			text-align: center;
+		}
+		.status {
+			margin-top: 10px;
+			padding: 10px;
+			border-radius: 3px;
+			display: none;
+		}
+		.status.success {
+			background-color: #d7edde;
+			color: #1c7b4e;
+		}
+		.status.error {
+			background-color: #ffe6e6;
+			color: #c00;
+		}
+	</style>
+</head>
+
+<body>
+	<h1>TabGroup Sync 設定</h1>
+
+	<div class="section">
+		<div class="section-title">匯出</div>
+		<div class="select-all">
+			<input type="checkbox" id="select-all-groups">
+			<label for="select-all-groups">全選/取消全選</label>
+		</div>
+		<div id="export-group-list">載入中...</div>
+		<div class="button-row">
+			<button id="export-json">匯出 JSON</button>
+		</div>
+	</div>
+
+	<div class="section">
+		<div class="section-title">匯入</div>
+		<p>從 JSON 檔案匯入群組資料</p>
+		<div class="button-row">
+			<button id="import-json">選擇檔案</button>
+		</div>
+		<div id="import-status" class="status"></div>
+	</div>
+
+	<script src="options.js"></script>
+</body>
+
+</html>

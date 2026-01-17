@@ -76,6 +76,47 @@ async function loadTabGroupsFromStorage()
 }
 
 /**
+ * 從本地存儲獲取遠端 ID 與本地 ID 的對應表
+ *
+ * @async
+ * @returns {Promise<Map<number, number>>} 返回 Map<遠端ID, 本地ID>
+ */
+async function loadGroupIdMapping()
+{
+	const storage = _getBrowserStorage();
+	const data = await storage.local.get("groupIdMapping");
+	const mapping = data?.groupIdMapping || {};
+
+	const result = new Map();
+	for (const [remoteId, localId] of Object.entries(mapping))
+	{
+		result.set(Number(remoteId), Number(localId));
+	}
+
+	return result;
+}
+
+/**
+ * 保存遠端 ID 與本地 ID 的對應表
+ *
+ * @async
+ * @param {Map<number, number>} mapping - Map<遠端ID, 本地ID>
+ */
+async function saveGroupIdMapping(mapping)
+{
+	const storage = _getBrowserStorage();
+	const mappingObj = {};
+
+	for (const [remoteId, localId] of mapping.entries())
+	{
+		mappingObj[remoteId] = localId;
+	}
+
+	await storage.local.set({ groupIdMapping: mappingObj });
+	console.log("GroupIdMapping 已保存", mappingObj);
+}
+
+/**
  * 查詢瀏覽器當前的 tab 和 group 狀態
  *
  * @async
@@ -145,6 +186,25 @@ function buildSyncTab(tab)
 	};
 }
 
+
+/**
+ * 在 Map 中通过值查找对应的键
+ * 
+ * @param {Map<K, V>} map - 要查找的 Map 对象
+ * @param {V} value - 要查找的值
+ * @returns {K} 返回找到的键，如果未找到则返回 undefined
+ */
+function _findMapKeyByValue(map, value)
+{
+	for (const [key, val] of map.entries())
+	{
+		if (val === value)
+		{
+			return key;
+		}
+	}
+}
+
 /**
  * 将当前浏览器窗口中的标签页组数据推送到浏览器存储中
  *
@@ -157,7 +217,8 @@ function buildSyncTab(tab)
  * 3. 对于每个标签页组:
  *    - 获取组信息
  *    - 收组内的所有标签页信息
- * 4. 将数据保存到 storage.sync 和 storage.local
+ * 4. 根據對應表將本地 ID 轉換為遠端 ID
+ * 5. 将数据保存到 storage.sync 和 storage.local
  */
 async function pushTabGroupsStorage()
 {
@@ -166,6 +227,7 @@ async function pushTabGroupsStorage()
 	 * @type {ISyncTabGroupsStorage}
 	 */
 	const groups = {};
+	const idMapping = await loadGroupIdMapping();
 
 	await queryBrowserTabs({}, async (tabs) =>
 	{
@@ -178,7 +240,11 @@ async function pushTabGroupsStorage()
 		{
 			if (validTabGroupId(tab.groupId))
 			{
-				if (!groups[tab.groupId])
+				const localGroupId = tab.groupId;
+				// 使用遠端 ID 作為 key，如果不存在則使用本地 ID
+				const remoteGroupId = _findMapKeyByValue(idMapping, localGroupId) || localGroupId;
+
+				if (!groups[remoteGroupId])
 				{
 					let groupInfo = await getTabGroup(tab.groupId);
 					if (groupInfo)
@@ -193,17 +259,17 @@ async function pushTabGroupsStorage()
 						console.warn("群組不存在或已刪除", tab.groupId);
 					}
 
-					groups[tab.groupId] = {
-						id: tab.groupId,
+					groups[remoteGroupId] = {
+						id: remoteGroupId,
 						title: groupInfo.title,
 						color: groupInfo.color,
 						collapsed: groupInfo.collapsed,
 						tabs: []
 					};
 
-					console.log(tab.groupId, groupInfo, groups[tab.groupId]);
+					console.log(`本地 ID ${localGroupId} -> 遠端 ID ${remoteGroupId}`, groupInfo, groups[remoteGroupId]);
 				}
-				groups[tab.groupId].tabs.push(buildSyncTab(tab));
+				groups[remoteGroupId].tabs.push(buildSyncTab(tab));
 			}
 		}
 	});
@@ -213,11 +279,11 @@ async function pushTabGroupsStorage()
 
 /**
  * 从浏览器存储中拉取标签页组数据并同步到当前浏览器窗口
- * 
+ *
  * @async
  * @returns {Promise<void>}
  * @throws {Error} 当存储数据格式错误或同步操作失败时抛出
- * @description 
+ * @description
  * 1. 从浏览器存储中获取保存的标签页组数据
  * 2. 检查数据格式有效性
  * 3. 查询当前浏览器中已存在的标签页和标签页组
@@ -227,6 +293,7 @@ async function pushTabGroupsStorage()
  *      - 如果标签页已存在但未分组，则加入当前组
  *      - 如果标签页不存在，则新建标签页并加入组
  *    - 根据情况将标签页添加到现有组或创建新组
+ * 5. 建立 ID 對應表（遠端 ID -> 本地 ID）
  */
 async function pullTabGroupsStorage()
 {
@@ -238,14 +305,17 @@ async function pullTabGroupsStorage()
 	}
 
 	const { tabMap, tabsByGroupId, groups: existingGroups } = await getBrowserTabContext();
+	const idMapping = await loadGroupIdMapping();
+	const newIdMapping = new Map(idMapping);
 
 	for (const groupId in groups)
 	{
+		const remoteGroupId = parseInt(groupId);
 		const group = groups[groupId];
 		const tabsToAdd = [];
 
-		// 檢測 group 是否已存在
-		const existingGroupId = findExistingGroupId(group, existingGroups, tabsByGroupId);
+		// 檢測 group 是否已存在（傳入 ID 對應表）
+		const existingGroupId = findExistingGroupId(group, existingGroups, tabsByGroupId, idMapping);
 
 		console.log(existingGroupId ? "Group already exists" : "Group does not exist", existingGroupId, group);
 
@@ -262,14 +332,14 @@ async function pullTabGroupsStorage()
 				}
 				else
 				{
-					// 如果 tab 已在目標 group 中，則跳過
+					// 如果 tab 已在任意 group 中，則跳過
 					console.log("Tab already exists in group", tab, existingTab.groupId, existingTab.id);
 				}
 			}
 			else
 			{
 				// tab 不存在，建立新 tab
-				const newTab = await chrome.tabs.create({ url: tab.url });
+				const newTab = await browser.tabs.create({ url: tab.url });
 				tabsToAdd.push(newTab.id);
 				tabMap.set(tab.url, newTab);
 
@@ -279,9 +349,12 @@ async function pullTabGroupsStorage()
 
 		if (tabsToAdd.length > 0)
 		{
+			let localGroupId;
+
 			// 如果 group 已存在，將 tab 加入現有 group
 			if (existingGroupId !== null)
 			{
+				localGroupId = existingGroupId;
 				console.log("Add tabs to exists group", existingGroupId, tabsToAdd);
 				await createTabGroup({
 					groupId: existingGroupId,
@@ -291,19 +364,28 @@ async function pullTabGroupsStorage()
 			else
 			{
 				console.log("Add tabs to new group", {
-					groupId: group.id,
 					tabIds: tabsToAdd,
 					updateProperties: group,
 				});
 				// 否則建立新 group
-				await createTabGroup({
-					groupId: group.id,
+				localGroupId = await createTabGroup({
 					tabIds: tabsToAdd,
 					updateProperties: group,
 				});
 			}
+
+			// 建立 ID 對應：遠端 ID -> 本地 ID
+			if (localGroupId !== remoteGroupId)
+			{
+				newIdMapping.set(remoteGroupId, localGroupId);
+				console.log(`ID 對應建立：遠端 ${remoteGroupId} -> 本地 ${localGroupId}`);
+			}
 		}
 	}
+
+	// 保存更新後的 ID 對應表
+	await saveGroupIdMapping(newIdMapping);
+
 	console.log("TabGroups 已從 storage.sync 載入");
 }
 
@@ -335,6 +417,7 @@ async function mergeTabGroupsStorage()
 	}
 
 	const { tabMap, tabsByGroupId, groups: localGroups } = await getBrowserTabContext();
+	const idMapping = await loadGroupIdMapping();
 
 	/**
 	 * 合併後的數據結構
@@ -349,7 +432,9 @@ async function mergeTabGroupsStorage()
 		if (validTabGroupId(localGroup.id))
 		{
 			const groupTabs = tabsByGroupId.get(localGroup.id) || [];
+			// 使用本地 ID 作為 key
 			mergedGroups[localGroup.id] = buildSyncGroupFromBrowserGroup(localGroup, groupTabs);
+			mergedGroups[localGroup.id].id = localGroup.id;
 
 			// 記錄已處理的標籤頁 URL
 			for (const tab of mergedGroups[localGroup.id].tabs)
@@ -365,8 +450,8 @@ async function mergeTabGroupsStorage()
 		const remoteGroup = remoteGroups[remoteGroupId];
 		let targetGroupId = null;
 
-		// 檢測 group 是否已存在
-		const existingGroupId = findExistingGroupId(remoteGroup, localGroups, tabsByGroupId);
+		// 檢測 group 是否已存在（傳入 ID 對應表）
+		const existingGroupId = findExistingGroupId(remoteGroup, localGroups, tabsByGroupId, idMapping);
 
 		// 如果存在相同群組，合併標籤頁
 		if (existingGroupId !== null)
@@ -374,10 +459,10 @@ async function mergeTabGroupsStorage()
 			targetGroupId = existingGroupId;
 			console.log("合併到現有群組", existingGroupId, remoteGroup);
 		}
-		// 否則創建新群組（使用遠端 ID）
+		// 否則創建新群組（使用本地 ID）
 		else
 		{
-			targetGroupId = parseInt(remoteGroupId);
+			targetGroupId = remoteGroupId;
 			mergedGroups[targetGroupId] = {
 				id: targetGroupId,
 				title: remoteGroup.title,
@@ -569,11 +654,15 @@ async function createTabGroup(options)
 		console.error("options.tabIds 必須是數字或數字陣列", options);
 		throw new TypeError("options.tabIds 必須是數字或數字陣列");
 	}
-	
+
 	console.log("createTabGroup", options);
-	let groupId = await browser.tabs.group(options);
 
 	let updateProperties = options.updateProperties || options.createProperties;
+
+	delete options.updateProperties;
+	// delete options.createProperties;
+
+	let groupId = await browser.tabs.group(options);
 
 	if (isAllowedSettingObject(updateProperties))
 	{
@@ -690,17 +779,34 @@ function groupTabsByGroupId(tabs)
  * @param {ISyncTabGroup} group - 要檢測的同步群組
  * @param {TabGroup[]} existingGroups - 現有的群組陣列
  * @param {Map<number, ISyncTab[]>} existingTabsByGroupId - 依照 groupId 分組的 tabs Map
+ * @param {Map<number, number>} [idMapping] - 遠端 ID 與本地 ID 的對應表（可選）
  * @returns {number|null} 返回存在的群組 ID，若不存在則返回 null
  */
-function findExistingGroupId(group, existingGroups, existingTabsByGroupId)
+function findExistingGroupId(group, existingGroups, existingTabsByGroupId, idMapping = null)
 {
 	const groupTitle = group.title || TAB_GROUP_TITLE_DEFAULT;
 
-	// 1. 先以 id 判斷 group 是否已存在
-	const groupById = existingGroups.find(g => g.id === group.id);
-	if (validTabGroupId(groupById?.id))
+	// 1 以 id 判斷 group 是否已存在
+	let targetRemoteId = group.id;
+
+	// 1.1 先以 existingGroup.id 判斷 group 是否已存在
+	let groupId = existingGroups.find(g => g.id === targetRemoteId)?.id;
+	if (validTabGroupId(groupId))
 	{
-		return groupById.id;
+		return groupId;
+	}
+	// 1.2 再使用對應表轉換遠端 ID 為本地 ID
+	else if (idMapping)
+	{
+		const localId = idMapping.get(targetRemoteId);
+		if (validTabGroupId(localId))
+		{
+			groupId = existingGroups.find(g => g.id === localId)?.id;
+			if (validTabGroupId(groupId))
+			{
+				return groupId;
+			}
+		}
 	}
 
 	// 2. 找出標題符合的群組
