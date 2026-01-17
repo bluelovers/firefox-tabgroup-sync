@@ -20,13 +20,21 @@
  */
 
 /**
+ * @typedef {'created' | 'updated' | 'merged'} OperationType
+ * @description 操作類型：created-本地有遠端沒有, updated-本地沒有遠端有, merged-本地有遠端有
+ */
+
+/**
  * @typedef {Object} ISyncTabGroup
- * 
+ *
  * @property {number} id - 標籤頁組的 ID
  * @property {string} [title] - 標籤頁組的標題
  * @property {string} [color] - 標籤頁組的顏色
  * @property {boolean} [collapsed] - 標籤頁組是否折疊
  * @property {ISyncTab[]} tabs - 標籤頁組中的標籤頁列表
+ * @property {number} [createdAt] - 最初建立的時間 (milliseconds since the epoch)
+ * @property {number} [updatedAt] - 最後更改的時間 (milliseconds since the epoch)
+ * @property {OperationType} [lastOperation] - 最後一次操作類型
  */
 
 /**
@@ -139,7 +147,9 @@ async function getBrowserTabContext()
 async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步到 storage.sync")
 {
 	const browserChrome = _getBrowserChrome();
+	// 保存到遠端sync存储
 	await browserChrome.storage.sync.set({ tabGroups: groups });
+	// 保存到本地local存储
 	await browserChrome.storage.local.set({ tabGroups: groups });
 	console.log(logMessage, groups);
 
@@ -152,10 +162,13 @@ async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步�
  *
  * @param {TabGroup} group - 瀏覽器 API 返回的 group 對象
  * @param {ISyncTab[]} [tabs] - 該群組下的 tabs（可選）
+ * @param {ISyncTabGroup} [existingGroup] - 現有的群組數據（可選，用於保留時間戳）
+ * @param {OperationType} [operation] - 操作類型（可選）
  * @returns {ISyncTabGroup} 構建好的 ISyncTabGroup 對象
  */
-function buildSyncGroupFromBrowserGroup(group, tabs = [])
+function buildSyncGroupFromBrowserGroup(group, tabs = [], existingGroup = null, operation = "updated")
 {
+	const now = Date.now();
 	return {
 		id: group.id,
 		title: group.title,
@@ -164,7 +177,10 @@ function buildSyncGroupFromBrowserGroup(group, tabs = [])
 		tabs: tabs.map(tab => ({
 			url: tab.url,
 			title: tab.title
-		}))
+		})),
+		createdAt: existingGroup?.createdAt || now,
+		updatedAt: now,
+		lastOperation: operation
 	};
 }
 
@@ -225,6 +241,10 @@ async function pushTabGroupsStorage()
 	const groups = {};
 	const idMapping = await loadGroupIdMapping();
 
+	// 載入現有的群組數據以保留時間戳
+	const existingData = await _getBrowserChrome().storage.sync.get("tabGroups");
+	const existingGroups = existingData?.tabGroups || {};
+
 	await queryBrowserTabs({}, async (tabs) =>
 	{
 		if (!tabs)
@@ -255,17 +275,16 @@ async function pushTabGroupsStorage()
 						console.warn("群組不存在或已刪除", tab.groupId);
 					}
 
-					groups[remoteGroupId] = {
-						id: remoteGroupId,
-						title: groupInfo.title,
-						color: groupInfo.color,
-						collapsed: groupInfo.collapsed,
-						tabs: []
-					};
+					// 獲取該群組下的所有標籤頁
+					const groupTabs = tabs.filter(t => t.groupId === tab.groupId);
+
+					// 判斷操作類型：本地有遠端沒有則為 created，本地沒有遠端有則為 updated，本地有遠端有則為 merged
+					const existingGroup = existingGroups[remoteGroupId];
+					const operation = existingGroup ? "merged" : "created";
+					groups[remoteGroupId] = buildSyncGroupFromBrowserGroup(groupInfo, groupTabs, existingGroup, operation);
 
 					console.log(`本地 ID ${localGroupId} -> 遠端 ID ${remoteGroupId}`, groupInfo, groups[remoteGroupId]);
 				}
-				groups[remoteGroupId].tabs.push(buildSyncTab(tab));
 			}
 		}
 	});
@@ -442,8 +461,10 @@ async function mergeTabGroupsStorage()
 		if (validTabGroupId(localGroup.id))
 		{
 			const groupTabs = tabsByGroupId.get(localGroup.id) || [];
-			// 使用本地 ID 作為 key
-			mergedGroups[localGroup.id] = buildSyncGroupFromBrowserGroup(localGroup, groupTabs);
+			// 判斷操作類型：本地有遠端沒有則為 created，本地有遠端有則為 merged
+			const existingGroup = remoteGroups[localGroup.id];
+			const operation = existingGroup ? "merged" : "created";
+			mergedGroups[localGroup.id] = buildSyncGroupFromBrowserGroup(localGroup, groupTabs, existingGroup, operation);
 			mergedGroups[localGroup.id].id = localGroup.id;
 
 			// 記錄已處理的標籤頁 URL
@@ -460,7 +481,7 @@ async function mergeTabGroupsStorage()
 		const remoteGroup = remoteGroups[remoteGroupId];
 		let targetGroupId = null;
 
-		// 檢測 group 是否已存在（傳入 ID 對應表）
+	// 檢測 group 是否已存在（傳入 ID 對應表）
 		const existingGroupId = findExistingGroupId(remoteGroup, localGroups, tabsByGroupId, idMapping);
 
 		// 如果存在相同群組，合併標籤頁
@@ -468,17 +489,23 @@ async function mergeTabGroupsStorage()
 		{
 			targetGroupId = existingGroupId;
 			console.log("合併到現有群組", existingGroupId, remoteGroup);
+			// 已經在前面設置為 merged
 		}
 		// 否則創建新群組（使用本地 ID）
 		else
 		{
 			targetGroupId = remoteGroupId;
+			const now = Date.now();
 			mergedGroups[targetGroupId] = {
 				id: targetGroupId,
 				title: remoteGroup.title,
 				color: remoteGroup.color,
 				collapsed: remoteGroup.collapsed,
-				tabs: []
+				tabs: [],
+				// 保留遠端群組的時間戳，標記為 updated（本地沒有遠端有）
+				createdAt: remoteGroup.createdAt || now,
+				updatedAt: remoteGroup.updatedAt || now,
+				lastOperation: "updated"
 			};
 			console.log("創建新群組", targetGroupId, remoteGroup);
 		}
@@ -627,8 +654,24 @@ async function importJsonData(importData)
 		const data = await _getBrowserChrome().storage.sync.get("tabGroups");
 		const existingGroups = data?.tabGroups || {};
 
+		// 為每個導入的群組設置時間戳和操作類型
+		const now = Date.now();
+		const importGroupsWithTimestamps = {};
+		for (const [groupId, group] of Object.entries(importData))
+		{
+			importGroupsWithTimestamps[groupId] = {
+				...group,
+				// 保留原有的 createdAt，如果沒有則設為當前時間
+				createdAt: group.createdAt || now,
+				// 更新 updatedAt
+				updatedAt: now,
+				// 標記為 created（導入視為新增）
+				lastOperation: "created"
+			};
+		}
+
 		// 合併現有資料與匯入資料
-		const mergedGroups = { ...existingGroups, ...importData };
+		const mergedGroups = { ...existingGroups, ...importGroupsWithTimestamps };
 
 		await saveTabGroupsToStorage(mergedGroups, "TabGroups 匯入成功");
 
