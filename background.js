@@ -44,7 +44,106 @@
  */
 
 
+/**
+ * @typedef {Object} TabGroupContext
+ *
+ * @property {Map<string, ISyncTab>} tabMap - 以 URL 為 key 的 tab Map
+ * @property {Map<number, ISyncTab[]>} tabsByGroupId - 以 groupId 為 key 的 tabs Map
+ * @property {TabGroup[]} groups - 本地群組陣列
+ */
+
 const TAB_GROUP_TITLE_DEFAULT = "";
+
+/**
+ * 從瀏覽器存儲獲取 tabGroups 數據
+ *
+ * @async
+ * @returns {Promise<ISyncTabGroupsStorage|null>} 返回 tabGroups 數據，若無效則返回 null
+ */
+async function loadTabGroupsFromStorage()
+{
+	const storage = _getBrowserStorage();
+	const data = await storage.sync.get("tabGroups");
+	const groups = data?.tabGroups;
+
+	if (!isAllowedSettingObject(groups))
+	{
+		console.warn("TabGroups 資料格式錯誤或不存在", groups);
+		return null;
+	}
+
+	return groups;
+}
+
+/**
+ * 查詢瀏覽器當前的 tab 和 group 狀態
+ *
+ * @async
+ * @returns {Promise<TabGroupContext>} 返回包含 tabMap, tabsByGroupId, groups 的上下文
+ */
+async function getBrowserTabContext()
+{
+	const tabs = await queryBrowserTabs({});
+	const tabMap = new Map(tabs.map(tab => [tab.url, tab]));
+	const tabsByGroupId = groupTabsByGroupId(tabs);
+	const groups = await queryTabGroup({});
+
+	return { tabMap, tabsByGroupId, groups };
+}
+
+/**
+ * 保存 tabGroups 到瀏覽器存儲
+ *
+ * @async
+ * @param {ISyncTabGroupsStorage} groups - 要保存的 tabGroups 數據
+ * @param {string} [logMessage] - 可選的日誌訊息
+ */
+async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步到 storage.sync")
+{
+	const storage = _getBrowserStorage();
+
+	await storage.sync.set({ tabGroups: groups });
+	await storage.local.set({ tabGroups: groups });
+	console.log(logMessage, groups);
+
+	console.log("storage.sync.getKeys", await storage.sync.getKeys());
+	console.log("storage.local.getKeys", await storage.local.getKeys());
+}
+
+/**
+ * 從 TabGroup 對象構建 ISyncTabGroup 對象
+ *
+ * @param {TabGroup} group - 瀏覽器 API 返回的 group 對象
+ * @param {ISyncTab[]} [tabs] - 該群組下的 tabs（可選）
+ * @returns {ISyncTabGroup} 構建好的 ISyncTabGroup 對象
+ */
+function buildSyncGroupFromBrowserGroup(group, tabs = [])
+{
+	return {
+		id: group.id,
+		title: group.title,
+		color: group.color,
+		collapsed: group.collapsed,
+		tabs: tabs.map(tab => ({
+			url: tab.url,
+			title: tab.title
+		}))
+	};
+}
+
+/**
+ * 從 ISyncTab 構建 sync tab 對象
+ *
+ * @param {ISyncTab} tab - 來源 tab 對象
+ * @returns {{url: string, title: string}} 構建好的 sync tab 對象
+ */
+function buildSyncTab(tab)
+{
+	return {
+		url: tab.url,
+		title: tab.title
+	};
+}
 
 /**
  * 将当前浏览器窗口中的标签页组数据推送到浏览器存储中
@@ -104,22 +203,12 @@ async function pushTabGroupsStorage()
 
 					console.log(tab.groupId, groupInfo, groups[tab.groupId]);
 				}
-				groups[tab.groupId].tabs.push({
-					url: tab.url,
-					title: tab.title
-				});
+				groups[tab.groupId].tabs.push(buildSyncTab(tab));
 			}
 		}
 	});
 
-	const storage = _getBrowserStorage();
-
-	await storage.sync.set({ tabGroups: groups });
-	await storage.local.set({ tabGroups: groups });
-	console.log("TabGroups 已同步到 storage.sync", groups);
-
-	console.log("storage.sync.getKeys", await storage.sync.getKeys())
-	console.log("storage.local.getKeys", await storage.local.getKeys())
+	await saveTabGroupsToStorage(groups, "TabGroups 已同步到 storage.sync");
 }
 
 /**
@@ -141,25 +230,14 @@ async function pushTabGroupsStorage()
  */
 async function pullTabGroupsStorage()
 {
-	const storage = _getBrowserStorage();
+	const groups = await loadTabGroupsFromStorage();
 
-	const data = await storage.sync.get("tabGroups");
-	/**
-	 * 存储标签页组数据的对象
-	 * @type {ISyncTabGroupsStorage}
-	 */
-	const groups = data?.tabGroups;
-
-	if (!isAllowedSettingObject(groups))
+	if (!groups)
 	{
-		console.warn("TabGroups 資料格式錯誤或不存在", groups)
-		return
+		return;
 	}
 
-	const existingTabs = await queryBrowserTabs({});
-	const existingTabMap = new Map(existingTabs.map(tab => [tab.url, tab]));
-	const existingTabsByGroupId = groupTabsByGroupId(existingTabs);
-	const existingGroups = await queryTabGroup({});
+	const { tabMap, tabsByGroupId, groups: existingGroups } = await getBrowserTabContext();
 
 	for (const groupId in groups)
 	{
@@ -167,13 +245,13 @@ async function pullTabGroupsStorage()
 		const tabsToAdd = [];
 
 		// 檢測 group 是否已存在
-		const existingGroupId = findExistingGroupId(group, existingGroups, existingTabsByGroupId);
+		const existingGroupId = findExistingGroupId(group, existingGroups, tabsByGroupId);
 
 		console.log(existingGroupId ? "Group already exists" : "Group does not exist", existingGroupId, group);
 
 		for (const tab of group.tabs)
 		{
-			const existingTab = existingTabMap.get(tab.url);
+			const existingTab = tabMap.get(tab.url);
 
 			if (existingTab)
 			{
@@ -193,7 +271,7 @@ async function pullTabGroupsStorage()
 				// tab 不存在，建立新 tab
 				const newTab = await chrome.tabs.create({ url: tab.url });
 				tabsToAdd.push(newTab.id);
-				existingTabMap.set(tab.url, newTab);
+				tabMap.set(tab.url, newTab);
 
 				console.log("Tab does not exist", tab, newTab);
 			}
@@ -226,7 +304,7 @@ async function pullTabGroupsStorage()
 			}
 		}
 	}
-	console.log("TabGroups 已從 storage.sync 載入", data);
+	console.log("TabGroups 已從 storage.sync 載入");
 }
 
 /**
@@ -249,29 +327,15 @@ async function pullTabGroupsStorage()
  */
 async function mergeTabGroupsStorage()
 {
-	const storage = _getBrowserStorage();
+	const remoteGroups = await loadTabGroupsFromStorage();
 
-	// 獲取遠端數據
-	const remoteData = await storage.sync.get("tabGroups");
-	/**
-	 * 存儲遠端標籤頁組數據的對象
-	 * @type {ISyncTabGroupsStorage}
-	 */
-	const remoteGroups = remoteData?.tabGroups;
-
-	if (!isAllowedSettingObject(remoteGroups))
+	if (!remoteGroups)
 	{
-		console.warn("遠端 TabGroups 資料格式錯誤或不存在", remoteGroups)
-		return
+		return;
 	}
 
-	// 查詢本地數據
-	const localTabs = await queryBrowserTabs({});
-	const localTabMap = new Map(localTabs.map(tab => [tab.url, tab]));
-	const localTabsByGroupId = groupTabsByGroupId(localTabs);
-	const localGroups = await queryTabGroup({});
+	const { tabMap, tabsByGroupId, groups: localGroups } = await getBrowserTabContext();
 
-	// 構建本地數據結構（用於保存合併結果）
 	/**
 	 * 合併後的數據結構
 	 * @type {ISyncTabGroupsStorage}
@@ -284,17 +348,8 @@ async function mergeTabGroupsStorage()
 	{
 		if (validTabGroupId(localGroup.id))
 		{
-			const groupTabs = localTabsByGroupId.get(localGroup.id) || [];
-			mergedGroups[localGroup.id] = {
-				id: localGroup.id,
-				title: localGroup.title,
-				color: localGroup.color,
-				collapsed: localGroup.collapsed,
-				tabs: groupTabs.map(tab => ({
-					url: tab.url,
-					title: tab.title
-				}))
-			};
+			const groupTabs = tabsByGroupId.get(localGroup.id) || [];
+			mergedGroups[localGroup.id] = buildSyncGroupFromBrowserGroup(localGroup, groupTabs);
 
 			// 記錄已處理的標籤頁 URL
 			for (const tab of mergedGroups[localGroup.id].tabs)
@@ -308,11 +363,10 @@ async function mergeTabGroupsStorage()
 	for (const remoteGroupId in remoteGroups)
 	{
 		const remoteGroup = remoteGroups[remoteGroupId];
-		const tabsToAdd = [];
 		let targetGroupId = null;
 
 		// 檢測 group 是否已存在
-		const existingGroupId = findExistingGroupId(remoteGroup, localGroups, localTabsByGroupId);
+		const existingGroupId = findExistingGroupId(remoteGroup, localGroups, tabsByGroupId);
 
 		// 如果存在相同群組，合併標籤頁
 		if (existingGroupId !== null)
@@ -340,7 +394,7 @@ async function mergeTabGroupsStorage()
 			// 檢查標籤頁是否已被處理過（避免重複）
 			if (!addedTabUrls.has(remoteTab.url))
 			{
-				const localTab = localTabMap.get(remoteTab.url);
+				const localTab = tabMap.get(remoteTab.url);
 
 				if (localTab)
 				{
@@ -381,13 +435,7 @@ async function mergeTabGroupsStorage()
 		}
 	}
 
-	// 保存合併結果
-	await storage.sync.set({ tabGroups: mergedGroups });
-	await storage.local.set({ tabGroups: mergedGroups });
-	console.log("TabGroups 合併完成", mergedGroups);
-
-	console.log("storage.sync.getKeys", await storage.sync.getKeys())
-	console.log("storage.local.getKeys", await storage.local.getKeys())
+	await saveTabGroupsToStorage(mergedGroups, "TabGroups 合併完成");
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) =>
