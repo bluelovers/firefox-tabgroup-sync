@@ -633,7 +633,14 @@ async function getGroupsForExport()
  */
 async function exportSelectedGroups(selectedIds)
 {
-	const groups = await getGroupsForExport();
+	const groupsArray = await getGroupsForExport();
+
+	// 將陣列轉換為以 ID 為 key 的物件
+	const groups = {};
+	for (const group of groupsArray)
+	{
+		groups[group.id] = group;
+	}
 
 	const exportData = {};
 	for (const groupId of selectedIds)
