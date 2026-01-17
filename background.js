@@ -158,8 +158,24 @@ async function saveTabGroupsToStorage(tabGroups, logMessage)
 }
 
 /**
+ * 将标签组数组转换为以 ID 为 key 的对象
+ *
+ * @param {ISyncTabGroup[]} groupsArray - 标签组数组
+ * @returns {ISyncTabGroupsStorage} 返回以 ID 为 key 的对象
+ */
+function groupsArrayToRecord(groupsArray)
+{
+	const groups = {};
+	for (const group of groupsArray)
+	{
+		groups[group.id] = group;
+	}
+	return groups;
+}
+
+/**
  * 将标签组数据保存到浏览器存储中
- * 
+ *
  * @param {ISyncTabGroupsStorage} tabGroups - 需要保存的标签组数组
  * @param {string} [target="sync"] - 存储目标，可选值为"sync"或"local"
  * @returns {Promise} 返回浏览器storage.set操作的Promise对象
@@ -641,11 +657,7 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
 			if (isGroupsExportForLocal(source) && groups.length > 0)
 			{
 				// 當 source 為 local 時，將結果保存到 storage.local
-				const groupsObject = {};
-				for (const group of groups)
-				{
-					groupsObject[group.id] = group;
-				}
+				const groupsObject = groupsArrayToRecord(groups);
 				await _saveTabGroupsToStorageCore(groupsObject, "local");
 			}
 			return sendResponse({ groups })
@@ -729,11 +741,7 @@ async function exportSelectedGroups(selectedIds, source = "local")
 	const groupsArray = await getGroupsForExport(source);
 
 	// 將陣列轉換為以 ID 為 key 的物件
-	const groups = {};
-	for (const group of groupsArray)
-	{
-		groups[group.id] = group;
-	}
+	const groups = groupsArrayToRecord(groupsArray);
 
 	const exportData = {};
 	for (const groupId of selectedIds)
