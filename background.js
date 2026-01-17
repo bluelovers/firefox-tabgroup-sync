@@ -286,14 +286,8 @@ async function pushTabGroupsStorage()
  * @description
  * 1. 从浏览器存储中获取保存的标签页组数据
  * 2. 检查数据格式有效性
- * 3. 查询当前浏览器中已存在的标签页和标签页组
- * 4. 对于每个存储中的标签页组:
- *    - 检测是否已存在相同组
- *    - 对于组中的每个标签页:
- *      - 如果标签页已存在但未分组，则加入当前组
- *      - 如果标签页不存在，则新建标签页并加入组
- *    - 根据情况将标签页添加到现有组或创建新组
- * 5. 建立 ID 對應表（遠端 ID -> 本地 ID）
+ * 3. 调用核心函数处理标签页组同步
+ * 4. 建立 ID 對應表（遠端 ID -> 本地 ID）
  */
 async function pullTabGroupsStorage()
 {
@@ -304,6 +298,26 @@ async function pullTabGroupsStorage()
 		return;
 	}
 
+	await _pullTabGroupsStorageCore(groups);
+}
+
+/**
+ * 核心：拉取标签页组数据并同步到当前浏览器窗口
+ *
+ * @async
+ * @param {ISyncTabGroupsStorage} groups - 要同步的标签页组数据
+ * @description
+ * 1. 查询当前浏览器中已存在的标签页和标签页组
+ * 2. 对于每个标签页组:
+ *    - 检测是否已存在相同组
+ *    - 对于组中的每个标签页:
+ *      - 如果标签页已存在但未分组，则加入当前组
+ *      - 如果标签页不存在，则新建标签页并加入组
+ *    - 根据情况将标签页添加到现有组或创建新组
+ * 3. 建立 ID 對應表（遠端 ID -> 本地 ID）
+ */
+async function _pullTabGroupsStorageCore(groups)
+{
 	const { tabMap, tabsByGroupId, groups: existingGroups } = await getBrowserTabContext();
 	const idMapping = await loadGroupIdMapping();
 	const newIdMapping = new Map(idMapping);
@@ -600,7 +614,7 @@ async function exportSelectedGroups(selectedIds)
 }
 
 /**
- * 匯入 JSON 數據到 storage
+ * 匯入 JSON 數據到 storage 並同步到瀏覽器
  *
  * @async
  * @param {ISyncTabGroupsStorage} importData - 要匯入的群組數據
@@ -622,9 +636,10 @@ async function importJsonData(importData)
 		// 合併現有資料與匯入資料
 		const mergedGroups = { ...existingGroups, ...importData };
 
-		await storage.sync.set({ tabGroups: mergedGroups });
-		await storage.local.set({ tabGroups: mergedGroups });
-		console.log("TabGroups 匯入成功", mergedGroups);
+		await saveTabGroupsToStorage(mergedGroups, "TabGroups 匯入成功");
+
+		// 直接同步匯入的群組到瀏覽器
+		await _pullTabGroupsStorageCore(mergedGroups);
 
 		return { success: true };
 	}

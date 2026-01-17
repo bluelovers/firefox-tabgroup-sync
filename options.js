@@ -110,10 +110,11 @@ importFileInput.addEventListener("change", async (e) =>
 		const text = await file.text();
 		const data = JSON.parse(text);
 
+		showStatus("匯入中...");
 		const response = await browser.runtime.sendMessage({ action: "importJson", data });
 		if (response?.success)
 		{
-			showStatus("匯入成功！請執行 Pull 操作來載入群組");
+			showStatus("匯入成功！群組已同步到瀏覽器");
 			loadGroupsForExport();
 		}
 		else
