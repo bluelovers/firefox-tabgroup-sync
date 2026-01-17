@@ -2,12 +2,19 @@
 
 Firefox 擴充元件，跨裝置同步 TabGroup，用於同步瀏覽器的標籤頁組 (Tab Groups) 到瀏覽器儲存空間。
 
+## 連結
+
+- [Firefox Add-ons 頁面](https://addons.mozilla.org/zh-TW/firefox/addon/tabgroup-sync/)
+- [GitHub 儲存庫](https://github.com/bluelovers/firefox-tabgroup-sync)
+
 ## 功能
 
 - **Push**: 將目前的標籤頁組狀態儲存到 `storage.sync` 和 `storage.local`
 - **Pull**: 從 `storage.sync` 載入標籤頁組並在瀏覽器中重建
 - **Merge**: 合併遠端與本地的標籤頁組數據
 - **Export**: 匯出選中的群組為 JSON 檔案
+  - 支援選擇來源：本地資料（目前瀏覽器視窗）或雲端資料（已同步）
+  - 檔名格式：`tabgroups-YYYY-MM-DD-HHmmss.json`（24小時制）
 - **Import**: 從 JSON 檔案匯入群組數據並自動同步到瀏覽器
 
 ## 載入擴充元件
@@ -73,11 +80,6 @@ Firefox 擴充元件，跨裝置同步 TabGroup，用於同步瀏覽器的標籤
 - `popup.html` / `popup.js`: 彈出視窗介面
 - `options.html` / `options.js`: 選項頁面，用於匯出/匯入操作
 - `manifest.json`: 擴充元件配置檔
-
-## 連結
-
-- [Firefox Add-ons 頁面](https://addons.mozilla.org/zh-TW/firefox/addon/tabgroup-sync/)
-- [GitHub 儲存庫](https://github.com/bluelovers/firefox-tabgroup-sync)
 
 ## 相關資源
 
