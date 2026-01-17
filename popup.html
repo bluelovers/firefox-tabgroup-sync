@@ -38,6 +38,20 @@
 		.options-link a:hover {
 			text-decoration: underline;
 		}
+		.status {
+			margin-top: 15px;
+			padding: 10px;
+			border-radius: 3px;
+			display: none;
+		}
+		.status.success {
+			background-color: #d7edde;
+			color: #1c7b4e;
+		}
+		.status.error {
+			background-color: #ffe6e6;
+			color: #c00;
+		}
 	</style>
 </head>
 
@@ -47,6 +61,8 @@
 		<button id="pull" title="從雲端儲存載入標籤頁組">Pull</button>
 		<button id="merge" title="合併遠端與本地的標籤頁組">Merge</button>
 	</div>
+
+	<div id="status" class="status"></div>
 
 	<div class="options-link">
 		<a href="#" id="open-options" title="進入設定頁面進行匯出/匯入操作">開啟設定頁面</a>

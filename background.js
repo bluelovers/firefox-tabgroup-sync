@@ -222,7 +222,7 @@ function _findMapKeyByValue(map, value)
  * 将当前浏览器窗口中的标签页组数据推送到浏览器存储中
  *
  * @async
- * @returns {Promise<void>}
+ * @returns {Promise<{success: boolean, error?: string}>} 返回操作結果
  * @throws {Error} 当存储操作失败时抛出
  * @description
  * 1. 查询当前浏览器中所有标签页
@@ -294,13 +294,14 @@ async function pushTabGroupsStorage()
 	});
 
 	await saveTabGroupsToStorage(groups, "TabGroups 已同步到 storage.sync");
+	return { success: true };
 }
 
 /**
  * 从浏览器存储中拉取标签页组数据并同步到当前浏览器窗口
  *
  * @async
- * @returns {Promise<void>}
+ * @returns {Promise<{success: boolean, error?: string}>} 返回操作結果
  * @throws {Error} 当存储数据格式错误或同步操作失败时抛出
  * @description
  * 1. 从浏览器存储中获取保存的标签页组数据
@@ -314,10 +315,11 @@ async function pullTabGroupsStorage()
 
 	if (!groups)
 	{
-		return;
+		return { success: false, error: "無效的數據" };
 	}
 
 	await _pullTabGroupsStorageCore(groups);
+	return { success: true };
 }
 
 /**
@@ -426,7 +428,7 @@ async function _pullTabGroupsStorageCore(groups)
  * 合併遠端與本地的標籤頁組數據
  *
  * @async
- * @returns {Promise<void>}
+ * @returns {Promise<{success: boolean, error?: string}>} 返回操作結果
  * @throws {Error}當存儲數據格式錯誤或同步操作失敗時拋出
  * @description
  * 1. 從瀏覽器存儲中獲取保存的標籤頁組數據（遠端）
@@ -446,7 +448,7 @@ async function mergeTabGroupsStorage()
 
 	if (!remoteGroups)
 	{
-		return;
+		return { success: false, error: "無效的數據" };
 	}
 
 	const { tabMap, tabsByGroupId, groups: localGroups } = await getBrowserTabContext();
@@ -564,21 +566,25 @@ async function mergeTabGroupsStorage()
 	}
 
 	await saveTabGroupsToStorage(mergedGroups, "TabGroups 合併完成");
+	return { success: true };
 }
 
 browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
 {
 	if (msg.action === "push")
 	{
-		pushTabGroupsStorage();
+		pushTabGroupsStorage().then(result => sendResponse(result));
+		return true;
 	}
 	else if (msg.action === "pull")
 	{
-		pullTabGroupsStorage();
+		pullTabGroupsStorage().then(result => sendResponse(result));
+		return true;
 	}
 	else if (msg.action === "merge")
 	{
-		mergeTabGroupsStorage();
+		mergeTabGroupsStorage().then(result => sendResponse(result));
+		return true;
 	}
 	else if (msg.action === "getGroupsForExport")
 	{
