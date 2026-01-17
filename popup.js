@@ -1,9 +1,9 @@
-document.getElementById("save").addEventListener("click", () =>
+document.getElementById("push").addEventListener("click", () =>
 {
-	chrome.runtime.sendMessage({ action: "save" });
+	chrome.runtime.sendMessage({ action: "push" });
 });
 
-document.getElementById("load").addEventListener("click", () =>
+document.getElementById("pull").addEventListener("click", () =>
 {
-	chrome.runtime.sendMessage({ action: "load" });
+	chrome.runtime.sendMessage({ action: "pull" });
 });

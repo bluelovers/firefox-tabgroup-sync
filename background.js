@@ -41,7 +41,7 @@
  */
 
 // 儲存 TabGroup 狀態到 storage.sync
-async function saveTabGroups()
+async function pushTabGroupsStorage()
 {
 	/**
 	 * 存储标签页组数据的对象
@@ -104,7 +104,7 @@ async function saveTabGroups()
 }
 
 // 從 storage.sync 載入 TabGroup
-async function loadTabGroups()
+async function pullTabGroupsStorage()
 {
 	const storage = _getBrowserStorage();
 
@@ -135,13 +135,13 @@ async function loadTabGroups()
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) =>
 {
-	if (msg.action === "save")
+	if (msg.action === "push")
 	{
-		saveTabGroups();
-	} 
-	else if (msg.action === "load")
+		pushTabGroupsStorage();
+	}
+	else if (msg.action === "pull")
 	{
-		loadTabGroups();
+		pullTabGroupsStorage();
 	}
 });
 
