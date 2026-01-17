@@ -141,20 +141,20 @@ async function getBrowserTabContext()
  * 保存 tabGroups 到瀏覽器存儲
  *
  * @async
- * @param {ISyncTabGroupsStorage} groups - 要保存的 tabGroups 數據
+ * @param {ISyncTabGroupsStorage} tabGroups - 要保存的 tabGroups 數據
  * @param {string} [logMessage] - 可選的日誌訊息
  */
-async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步到 storage.sync")
+async function saveTabGroupsToStorage(tabGroups, logMessage)
 {
-	const browserChrome = _getBrowserChrome();
 	// 保存到遠端sync存储
-	await browserChrome.storage.sync.set({ tabGroups: groups });
+	await _saveTabGroupsToStorageCore(tabGroups, "sync");
 	// 保存到本地local存储
-	await browserChrome.storage.local.set({ tabGroups: groups });
-	console.log(logMessage, groups);
+	await _saveTabGroupsToStorageCore(tabGroups, "local");
 
-	console.log("storage.sync.getKeys", await browserChrome.storage.sync.getKeys());
-	console.log("storage.local.getKeys", await browserChrome.storage.local.getKeys());
+	if (logMessage)
+	{
+		console.log(logMessage, tabGroups);
+	}
 }
 
 /**
@@ -164,10 +164,24 @@ async function saveTabGroupsToStorage(groups, logMessage = "TabGroups 已同步�
  * @param {string} [target="sync"] - 存储目标，可选值为"sync"或"local"
  * @returns {Promise} 返回浏览器storage.set操作的Promise对象
  */
-async function _saveTabGroupsToStorageCore(tabGroups, target = "sync")
+async function _saveTabGroupsToStorageCore(tabGroups, target = "sync", logMessage)
 {
+	const browserChrome = _getBrowserChrome();
+
 	target = (target === "sync" || target !== "local") ? "sync" : target;
-	return _getBrowserChrome().storage[target].set({ tabGroups });
+
+	if (typeof logMessage === "undefined")
+	{
+		logMessage = `TabGroups 已同步到 storage.${target}`;
+	}
+
+	await browserChrome.storage[target].set({ tabGroups });
+	if (logMessage)
+	{
+		console.log(logMessage, tabGroups);
+	}
+
+	console.log(`storage.${target}.getKeys`, await browserChrome.storage[target].getKeys());
 }
 
 /**
@@ -326,7 +340,7 @@ async function pushTabGroupsStorage()
 	const existingGroups = existingData?.tabGroups || {};
 
 	const groups = await _pushTabGroupsStorageCore(existingGroups);
-	await saveTabGroupsToStorage(groups, "TabGroups 已同步到 storage.sync");
+	await saveTabGroupsToStorage(groups, "TabGroups 推送完成");
 	return { success: true };
 }
 
@@ -632,7 +646,7 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
 				{
 					groupsObject[group.id] = group;
 				}
-				await _getBrowserChrome().storage.local.set({ tabGroups: groupsObject });
+				await _saveTabGroupsToStorageCore(groupsObject, "local");
 			}
 			return sendResponse({ groups })
 		})
