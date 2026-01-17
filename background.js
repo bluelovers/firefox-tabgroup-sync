@@ -438,7 +438,7 @@ async function mergeTabGroupsStorage()
 	await saveTabGroupsToStorage(mergedGroups, "TabGroups 合併完成");
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) =>
+browser.runtime.onMessage.addListener((msg, _sender, sendResponse) =>
 {
 	if (msg.action === "push")
 	{
@@ -452,7 +452,103 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) =>
 	{
 		mergeTabGroupsStorage();
 	}
+	else if (msg.action === "getGroupsForExport")
+	{
+		getGroupsForExport().then(groups => sendResponse({ groups }))
+		return true
+	}
+	else if (msg.action === "exportJson")
+	{
+		exportSelectedGroups(msg.selectedIds).then(data => sendResponse({ data }));
+		return true;
+	}
+	else if (msg.action === "importJson")
+	{
+		importJsonData(msg.data).then(result => sendResponse(result));
+		return true;
+	}
+
+	return false;
 });
+
+/**
+ * 獲取可匯出的群組列表
+ *
+ * @async
+ * @returns {Promise<ISyncTabGroup[]>} 返回群組陣列
+ */
+async function getGroupsForExport()
+{
+	const storage = _getBrowserStorage();
+	const data = await storage.sync.get("tabGroups");
+	const groups = data?.tabGroups;
+
+	if (!isAllowedSettingObject(groups))
+	{
+		return [];
+	}
+
+	return Object.values(groups);
+}
+
+/**
+ * 匯出選中的群組為 JSON
+ *
+ * @async
+ * @param {number[]} selectedIds - 要匯出的群組 ID 陣列
+ * @returns {Promise<ISyncTabGroupsStorage>} 返回匯出的群組數據
+ */
+async function exportSelectedGroups(selectedIds)
+{
+	const groups = await getGroupsForExport();
+
+	const exportData = {};
+	for (const groupId of selectedIds)
+	{
+		if (groups[groupId])
+		{
+			exportData[groupId] = groups[groupId];
+		}
+	}
+
+	return exportData;
+}
+
+/**
+ * 匯入 JSON 數據到 storage
+ *
+ * @async
+ * @param {ISyncTabGroupsStorage} importData - 要匯入的群組數據
+ * @returns {Promise<{success: boolean, error?: string}>} 返回匯入結果
+ */
+async function importJsonData(importData)
+{
+	if (!isAllowedSettingObject(importData))
+	{
+		return { success: false, error: "匯入資料格式錯誤" };
+	}
+
+	try
+	{
+		const storage = _getBrowserStorage();
+		const data = await storage.sync.get("tabGroups");
+		const existingGroups = data?.tabGroups || {};
+
+		// 合併現有資料與匯入資料
+		const mergedGroups = { ...existingGroups, ...importData };
+
+		await storage.sync.set({ tabGroups: mergedGroups });
+		await storage.local.set({ tabGroups: mergedGroups });
+		console.log("TabGroups 匯入成功", mergedGroups);
+
+		return { success: true };
+	}
+	catch (err)
+	{
+		console.error("匯入失敗", err);
+		return { success: false, error: err.message };
+	}
+}
 
 /**
  * 创建并配置一个新的标签页组
