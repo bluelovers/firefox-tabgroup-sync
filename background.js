@@ -109,7 +109,23 @@ async function pushTabGroupsStorage()
 	console.log("storage.local.getKeys", await storage.local.getKeys())
 }
 
-// 從 storage.sync 載入 TabGroup
+/**
+ * 从浏览器存储中拉取标签页组数据并同步到当前浏览器窗口
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @throws {Error} 当存储数据格式错误或同步操作失败时抛出
+ * @description 
+ * 1. 从浏览器存储中获取保存的标签页组数据
+ * 2. 检查数据格式有效性
+ * 3. 查询当前浏览器中已存在的标签页和标签页组
+ * 4. 对于每个存储中的标签页组:
+ *    - 检测是否已存在相同组
+ *    - 对于组中的每个标签页:
+ *      - 如果标签页已存在但未分组，则加入当前组
+ *      - 如果标签页不存在，则新建标签页并加入组
+ *    - 根据情况将标签页添加到现有组或创建新组
+ */
 async function pullTabGroupsStorage()
 {
 	const storage = _getBrowserStorage();
