@@ -1,4 +1,10 @@
-// 載入群組列表
+
+/**
+ * 加载可供导出的标签群组列表并渲染到页面
+ * 
+ * @async
+ * @returns {Promise<void>} 无返回值，但会更新页面中的导出群组列表
+ */
 async function loadGroupsForExport()
 {
 	const response = await browser.runtime.sendMessage({ action: "getGroupsForExport" });
@@ -39,7 +45,12 @@ document.getElementById("select-all-groups").addEventListener("change", (e) =>
 	checkboxes.forEach(cb => cb.checked = e.target.checked);
 });
 
-// 顯示狀態訊息
+/**
+ * 显示导入操作的状态信息
+ * 
+ * @param {string} message - 要显示的状态消息
+ * @param {boolean} [isError=false] - 是否为错误状态，默认为false（成功状态）
+ */
 function showStatus(message, isError = false)
 {
 	const statusDiv = document.getElementById("import-status");
@@ -128,6 +139,13 @@ importFileInput.addEventListener("change", async (e) =>
 	}
 
 	e.target.value = "";
+});
+
+// 重新讀取群組列表
+document.getElementById("refresh-groups").addEventListener("click", async () =>
+{
+	await loadGroupsForExport();
+	showStatus("群組列表已更新");
 });
 
 // 頁面載入時初始化
