@@ -90,11 +90,20 @@ document.getElementById("export-json").addEventListener("click", async () =>
 
 	const exportSource = document.querySelector("input[name='export-source']:checked").value;
 	const response = await browser.runtime.sendMessage({ action: "exportJson", selectedIds, source: exportSource });
-	const exportData = response?.data;
 
-	if (!exportData)
+	// 檢查回應格式和數據
+	if (!response || typeof response !== "object" || !("data" in response))
 	{
-		showStatus("匯出失敗", true);
+		showStatus("匯出失敗：無效的回應", true);
+		return;
+	}
+
+	const exportData = response.data;
+
+	// 檢查資料是否為有效的非空物件
+	if (!exportData || typeof exportData !== "object" || Object.keys(exportData).length === 0)
+	{
+		showStatus("匯出失敗：無資料", true);
 		return;
 	}
 
